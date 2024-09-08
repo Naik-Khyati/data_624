@@ -1,0 +1,336 @@
+---
+title: "Data 624 - HW1 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+---
+
+```{r,warning=FALSE}
+library(fpp3)
+```
+
+## 2.1 Explore the following four time series: Bricks from aus_production, Lynx from pelt, Close from gafa_stock, Demand from vic_elec.
+
+### 2.1.1 Use ? (or help()) to find out about the data in each series.
+
+```{r,warning=FALSE}
+data("aus_production")
+?aus_production
+
+data("pelt")
+?pelt
+
+data("gafa_stock")
+?gafa_stock
+
+data("vic_elec")
+?vic_elec
+```
+
+### 2.1.2 What is the time interval of each series?
+aus_production is quarterly data from 1956 to 2010.   
+pelt is yearly data from 1845 to 1935.    
+gafa_stock business day data when the Market is open from 2014 to 2018.    
+vic_elec is every 30 minutes data from 2012 to 2014.   
+
+### 2.1.3 Use autoplot() to produce a time plot of each series.
+
+```{r,warning=FALSE}
+aus_production %>%   autoplot(Bricks)
+pelt %>%   autoplot(Lynx)
+gafa_stock %>%   autoplot(Close)
+```
+
+
+### 2.1.4 For the last plot, modify the axis labels and title.
+
+```{r,warning=FALSE}
+vic_elec %>%   autoplot(Demand) +
+  labs(x = "Date", y = "Demand") +
+  ggtitle("Electricity Demand Over Time")
+```
+
+
+## 2.2 Use filter() to find what days corresponded to the peak closing price for each of the four stocks in gafa_stock.
+
+```{r,warning=FALSE}
+gafa_stock %>% 
+             group_by(Symbol) %>%
+             filter(Close == max(Close))
+```
+
+
+## 2.3 Download the file tute1.csv from the book website, open it in Excel (or some other spreadsheet application), and review its contents. You should find four columns of information. Columns B through D each contain a quarterly series, labelled Sales, AdBudget and GDP. Sales contains the quarterly sales for a small company over the period 1981-2005. AdBudget is the advertising budget and GDP is the gross domestic product. All series have been adjusted for inflation.
+
+### 2.3.a You can read the data into R with the following script:
+
+```{r,warning=FALSE}
+tute1 <- readr::read_csv("https://raw.githubusercontent.com/Naik-Khyati/data_624/main/hw1/tute1.csv")
+View(tute1)
+```
+
+### 2.3.b Convert the data to time series
+
+```{r,warning=FALSE}
+mytimeseries <- tute1 %>%
+  mutate(Quarter = yearquarter(Quarter)) %>%
+  as_tsibble(index = Quarter)
+```
+
+### 2.3.c Construct time series plots of each of the three series
+
+```{r,warning=FALSE}
+mytimeseries %>%
+  pivot_longer(-Quarter) %>%
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line() +
+  facet_grid(name ~ ., scales = "free_y")
+```
+
+### 2.3.c.1 Check what happens when you don’t include facet_grid().
+
+```{r,warning=FALSE}
+mytimeseries %>%
+  pivot_longer(-Quarter) %>%
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line()
+```
+
+When facet_grid() is not included in the ggplot code, the result is a single plot where all the time series data (for different variables represented by name) are plotted together in one chart. 
+
+## 2.4. The USgas package contains data on the demand for natural gas in the US.
+
+### 2.4.a Install the USgas package.
+
+```{r,warning=FALSE}
+library(USgas)
+```
+
+### 2.4.b Create a tsibble from us_total with year as the index and state as the key.
+
+```{r,warning=FALSE}
+ts <- us_total
+
+ts <- ts %>%
+  as_tsibble(index = year, key = state)
+
+head(ts)
+```
+
+### 2.4.c Plot the annual natural gas consumption by state for the New England area (comprising the states of Maine, Vermont, New Hampshire, Massachusetts, Connecticut and Rhode Island).
+
+```{r,warning=FALSE}
+ne_ts <- ts %>%
+filter(state %in% c('Maine', 'Vermont', 'New Hampshire', 'Massachusetts', 'Connecticut', 'Rhode Island')) %>%  mutate(y = y/1e3)
+
+head(ne_ts)
+```
+
+```{r,warning=FALSE}
+autoplot(ne_ts, y) +
+  labs(title = "Annual natural gas consumption by state",
+       subtitle = "New England",
+       y = "Consumption")
+```
+
+
+
+## 2.5 Tourism Data Analysis
+
+### 2.5.a Download tourism.xlsx from the book website and read it into R using readxl::read_excel().
+
+```{r,warning=FALSE}
+library(readxl)
+library(httr)
+
+# URL of the raw Excel file
+url <- "https://raw.githubusercontent.com/Naik-Khyati/data_624/main/hw1/tourism.xlsx"
+
+# Temporary file to store the downloaded Excel
+temp_file <- tempfile(fileext = ".xlsx")
+
+# Download the file
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+# Read the Excel file from the temporary location
+tourism_data <- read_excel(temp_file, sheet = "Sheet1")
+
+# View the first few rows of the dataset
+head(tourism_data)
+```
+
+### 2.5.b Create a tsibble which is identical to the tourism tsibble from the tsibble package.
+
+```{r,warning=FALSE}
+# Convert tourism_data to tsibble
+tourism_ts <- tourism_data %>%
+  mutate(Quarter = yearquarter(Quarter)) %>%
+  as_tsibble(index = Quarter, key = c(Region, State, Purpose))
+
+head(tourism_ts)
+```
+
+### 2.5.c Find what combination of Region and Purpose had the maximum number of overnight trips on average.
+
+```{r,warning=FALSE}
+reg_pur_max_on_trips <- tourism_data %>%
+  group_by(Region, Purpose) %>%
+  summarise(Trip_Avg = mean(Trips)) %>%
+  filter(Trip_Avg == max(Trip_Avg)) %>%
+  arrange(desc(Trip_Avg))
+
+head(reg_pur_max_on_trips)
+```
+
+The combination of the Sydney region and the purpose of Visiting has the highest average number of overnight trips per quarter, with 747 trips.
+
+
+### 2.5.d Create a new tsibble which combines the Purposes and Regions, and just has total trips by State.
+
+```{r,warning=FALSE}
+reg_pur_tot_trips_state <- tourism_data %>%
+  mutate(Quarter = as.Date(Quarter)) %>%
+           group_by(State) %>%
+           summarise(total_trips = sum(Trips)) %>%
+           arrange(desc(total_trips))
+
+head(reg_pur_tot_trips_state)
+```
+
+New South Wales, Victoria, and Queensland have a significant lead in total trips.
+
+## 2.8. Use the following graphics functions: autoplot(), gg_season(), gg_subseries(), gg_lag(), ACF() and explore features from the following time series: “Total Private” Employed from us_employment, Bricks from aus_production, Hare from pelt, “H02” Cost from PBS, and Barrels from us_gasoline.
+
+Can you spot any seasonality, cyclicity and trend?
+What do you learn about the series?
+What can you say about the seasonal patterns?
+Can you identify any unusual years?
+
+```{r,warning=FALSE}
+data("PBS")
+data("us_employment")
+data("us_gasoline")
+```
+
+```{r,warning=FALSE}
+us_employment %>% 
+  filter(Title == "Total Private") %>% 
+  autoplot(Employed) + 
+  ggtitle("Autoplot")
+
+us_employment %>%filter(Title == "Total Private") %>% gg_season(Employed) +
+  ggtitle("Seasonal Decomposition")
+
+us_employment %>% 
+  filter(Title == "Total Private") %>% 
+  gg_subseries(Employed) +
+  ggtitle("Subseries Plot")
+
+us_employment %>% 
+  filter(Title == "Total Private") %>% 
+  gg_lag(Employed) +
+  ggtitle("Lag Plot")
+
+us_employment %>%
+  filter(Title == "Total Private") %>%
+  ACF(Employed) %>%
+  autoplot() +
+  ggtitle("Autocorrelation Function")
+```
+
+The US Employment dataset shows a general upward trend in Total Private employment over the years, with a notable dip around 2008 that aligns with the housing bubble crash. The data exhibits a seasonal pattern, with employment increasing in the first half of the year, decreasing afterward, and then rising again. The lag plot indicates a strong positive correlation at all lags. For a clearer seasonal decomposition, adjusting the employment numbers by the factor of population growth could be beneficial.
+
+```{r,warning=FALSE}
+aus_production %>% 
+  autoplot(Bricks) +
+  ggtitle("Autoplot")
+
+aus_production %>% 
+  gg_season(Bricks) +
+  ggtitle("Seasonal Decomposition")
+
+aus_production %>% 
+  gg_subseries(Bricks) +
+  ggtitle("Subseries Plot")
+
+aus_production %>% 
+  gg_lag(Bricks) +
+  ggtitle("Lag Plot")
+
+aus_production %>% 
+  ACF(Bricks) %>% 
+  autoplot() + 
+  ggtitle("Autocorrelation Function")
+```
+
+For the AUS Production dataset, brick production lacks a clear trend but displays strong annual seasonality with a cyclical pattern. Production notably dropped in the early 1980s. The seasonal plot shows increases in Q1 and Q3, with a decline in Q4. The lag plot reveals consistent positive season-to-season correlation.
+
+
+```{r,warning=FALSE}
+pelt %>% 
+  autoplot(Hare) +
+  ggtitle("Autoplot")
+
+pelt %>% 
+  gg_subseries(Hare)+
+  ggtitle("Subseries Plot")
+
+
+pelt %>% 
+  gg_subseries(Hare)+
+  ggtitle("Subseries Plot")
+
+
+pelt %>% 
+  ACF(Hare) %>% 
+  autoplot() + 
+  ggtitle("Autocorrelation Function")
+
+```
+
+For the Pelts data set for Hare, I notice that there isn’t a distinct trend, but it is shown a potential seasonal pattern accompanied by some cyclic behavior.There seem to be sharp fluctuations in the number of traded Hare pelts through a few year periods, with a general decrease as the decade comes to an end. The lag plot illustrates a moderate positive correlation particularly in lag 1.
+
+
+
+```{r,warning=FALSE}
+PBS %>% 
+  filter(ATC2 == "H02")  %>% 
+  autoplot(Cost) + 
+  ggtitle("Autoplot")
+
+
+```
+
+The Hare pelts dataset shows no clear trend but hints at seasonality and cyclic behavior. There are sharp fluctuations in traded pelts, with a general decline towards the end of the decade. The lag plot shows moderate positive correlation, especially at lag 1.
+
+```{r,warning=FALSE}
+us_gasoline %>% 
+  autoplot() + 
+  ggtitle("Autoplot")
+
+us_gasoline %>% 
+  gg_season() +
+  ggtitle("Seasonal Decomposition")
+
+us_gasoline %>% 
+  gg_subseries()+
+  ggtitle("Subseries Plot")
+
+us_gasoline %>% 
+  gg_lag() +
+  ggtitle("Lag Plot")
+
+us_gasoline %>% 
+  ACF() %>% 
+  autoplot() + 
+  ggtitle("Autocorrelation Function")
+```
+
+The Gasoline Barrels series shows a positive trend with seasonal patterns but is quite noisy, with peaks and declines at specific times of the month. The lag plot reveals a positive correlation with some overplotting. No unusual years are evident, though overplotting may obscure such trends.
