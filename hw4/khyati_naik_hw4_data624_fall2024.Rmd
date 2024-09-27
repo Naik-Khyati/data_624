@@ -1,0 +1,168 @@
+---
+title: "Data 624 - HW4 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+    latex_engine: xelatex
+---
+
+
+## 3.1. The UC Irvine Machine Learning Repository6 contains a data set related to glass identification. The data consist of 214 glass samples labeled as one of seven class categories. There are nine predictors, including the refractive index and percentages of eight elements: Na, Mg, Al, Si, K, Ca, Ba, and Fe. The data can be accessed via:
+
+```{r}
+library(mlbench)
+data(Glass)
+str(Glass)
+```
+
+### a. Using visualizations, explore the predictor variables to understand their distributions as well as the relationships between predictors.
+
+```{r}
+# Load necessary libraries
+library(corrplot)
+library(tidyverse)
+library(caret)
+library(mice)
+```
+
+```{r}
+# Histograms for each predictor variable
+Glass %>% select(-c(Type)) %>% 
+  gather() %>% 
+  ggplot(aes(x = value)) + geom_histogram(bins=30) + facet_wrap(~key, scales = 'free')
+
+# Correlation heatmap
+cor_matrix <- cor(Glass[,1:9])
+corrplot(cor_matrix, method = "number", type = "upper", tl.col = "black", tl.srt = 45)
+
+```
+
+* The histograms for each predictor reveal notable differences in the distributions across variables. For instance, some predictors exhibit relatively normal distributions (e.g., Si and Ca), while others, such as Ba and K, show heavy skewness with a significant concentration of values near zero.
+* The correlation heatmap provides valuable insight into the relationships between predictors. Strong positive correlations are observed between some variables (e.g., Ca and RI), indicating potential multicollinearity. However, others, such as Fe, show low correlations with most predictors, suggesting their independence. Understanding these correlations is important for model building, as highly correlated predictors can negatively impact some classification algorithms by introducing redundancy.
+
+
+### b. Do there appear to be any outliers in the data? Are any predictors skewed?
+```{r}
+# Boxplots for each predictor variable
+
+Glass %>% select(-c(Type)) %>% 
+  gather() %>% 
+  ggplot(aes(x = value)) + 
+  stat_boxplot(geom = "errorbar", width = 0.5) + 
+  geom_boxplot() + 
+  facet_wrap(~key, scales = 'free')
+```
+
+* The boxplots provide clear evidence of outliers across several predictors. Notably, variables like Ba and K show extreme outliers, which could skew the classification model if not addressed. 
+* Skewness is evident in the distribution of several predictors, as seen in the histograms from the earlier visualization. For example, Ba and K exhibit strong right skewness, where most of the values are concentrated at lower levels, with a few high values pulling the tail to the right. These predictors may benefit from transformations to reduce skewness, making the data more suitable for classification algorithms that assume normality (e.g., linear discriminant analysis).
+
+### c. Are there any relevant transformations of one or more predictors that might improve the classification model?
+
+```{r}
+# Perform Box-Cox transformation along with centering and scaling
+transformation_model <- preProcess(Glass, method = c("BoxCox", "center", "scale"))
+
+# Apply the transformations to the Glass dataset
+Glass_modified <- predict(transformation_model, Glass)
+
+# Exclude the target variable and reshape the data for visualization
+Glass_modified %>%
+  select(-Type) %>%
+  pivot_longer(cols = everything()) %>%
+  
+  # Plot histograms of each transformed predictor
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~name, scales = 'free_x') +
+  theme_light() +
+  labs(title = "Histograms of Transformed Glass Predictors", x = "Transformed Value", y = "Frequency")
+```
+
+* After applying the Box-Cox transformation, centering, and scaling, the distributions of predictors generally appear more normalized. The histograms of the transformed predictors show a reduction in skewness. By normalizing skewed data, the Box-Cox transformation enhances the applicability of machine learning models that are sensitive to the distribution of predictors.
+* Centering and scaling also help standardize the predictors by ensuring that all variables have a mean of zero and a standard deviation of one. This step is particularly beneficial when using algorithms that rely on distance measures (e.g., k-nearest neighbors, support vector machines), as it ensures that all predictors contribute equally to the model.
+
+## 3.2. The soybean data can also be found at the UC Irvine Machine Learning Repository. Data were collected to predict disease in 683 soybeans. The 35 predictors are mostly categorical and include information on the environmental conditions (e.g., temperature, precipitation) and plant conditions (e.g., left spots, mold growth). The outcome labels consist of 19 distinct classes. The data can be loaded via:
+
+```{r}
+library(mlbench)
+data(Soybean)
+```
+
+### a. Investigate the frequency distributions for the categorical predictors. Are any of the distributions degenerate in the ways discussed earlier in this chapter?
+
+```{r}
+# Transforming the Soybean dataset for analysis
+Soybean_cleaned <- Soybean %>%
+  select(-Class) %>%
+  mutate(across(where(is.factor), as.numeric)) %>%
+  pivot_longer(cols = -c(date), names_to = "Variable", values_to = "Value")
+
+# Distribution of Predictors
+ggplot(Soybean_cleaned, aes(x = Value)) +
+  geom_histogram(fill = "lightblue", color = "black", stat="count") +
+  facet_wrap(vars(Variable)) +
+  labs(title = "Distribution of Predictors in Soybean Dataset",
+       x = "Value",
+       y = "Frequency") 
+
+# Summarize the categorical predictors
+summary(Soybean)
+```
+
+* The bar plots generated for the categorical predictors provide a clear visual overview of the distributions of each variable. While most predictors appear to be well-distributed, some may exhibit degenerate distributions where a large proportion of the observations fall into a single category. This can be seen in predictors such as precipitation or leaf spots, where the majority of the data might be clustered into one or two levels.
+* Degenerate distributions, where one category overwhelmingly dominates, can reduce the predictive power of the model as they offer little variance to distinguish between different classes. This may warrant either the removal of such variables or further investigation to combine similar categories.
+* The summary statistics also provide a useful overview, confirming that many variables contain multiple levels, but only a few may dominate the distribution in each case.
+
+
+### b. Roughly 18 % of the data are missing. Are there particular predictors that are more likely to be missing? Is the pattern of missing data related to the classes?
+
+
+```{r}
+# Count the number of observations with a missing value by predictor variable
+colSums_Missing_Count <- data.frame(colSums(is.na(Soybean)))
+
+# Name the column for the NA count
+colnames(colSums_Missing_Count) <- "NA.Count"
+
+# Convert the index column into a named column to keep the variable names
+colSums_Missing_Count <- cbind(Variable = rownames(colSums_Missing_Count), colSums_Missing_Count)
+rownames(colSums_Missing_Count) <- 1:nrow(colSums_Missing_Count)
+
+# Sort by the missing count in descending order
+colSums_Missing_Count <- colSums_Missing_Count[order(-colSums_Missing_Count$NA.Count),]
+
+# Output the results
+(colSums_Missing_Count)
+```
+
+* The missing data analysis reveals that roughly 18% of the values in the dataset are missing, with certain predictors more affected than others. For example, the column-wise summary highlights predictors with a high percentage of missing values, such as plant growth or leaf conditions.
+* From the analysis, predictors with a large amount of missing data could potentially be less reliable for modeling unless there is a pattern to the missingness that can be explained by other variables or related to specific class labels. If missing data is associated with specific outcome classes (e.g., missing leaf spot information in particular disease cases), this could provide useful insights but also lead to potential bias if not handled correctly.
+* Overall, the missing data seems to be non-uniformly distributed across predictors, meaning a targeted approach for imputation or elimination is required.
+
+### c. Develop a strategy for handling missing data, either by eliminating predictors or imputation.
+
+```{r}
+# Identify predictors with near-zero variance
+nzv <- nearZeroVar(Soybean, saveMetrics = TRUE)
+print(nzv)
+
+# Remove near-zero variance predictors
+Soybean_clean <- Soybean[, -nzv$nzv]
+
+# Impute missing data using predictive mean matching for numeric variables
+imputed_data <- mice(Soybean_clean, m = 5, maxit = 5, method = "norm.predict", seed = 500)
+
+Soybean_imputed <- complete(imputed_data, 1)
+```
+
+
+* The approach taken to handle missing data first identifies predictors with near-zero variance, removing variables that contribute little meaningful information. This step is crucial, as near-zero variance predictors can introduce noise and complexity into the model without providing any useful insights.
+* For the remaining missing data, multiple imputation using the "norm.predict" method is applied. This is an effective strategy as it leverages the relationships between predictors to fill in missing values rather than simply dropping rows or using mean imputation. This maintains the dataset's integrity by preserving as much information as possible.
+* The final dataset is checked for remaining missing values, confirming that imputation has been successfully applied. This approach balances the elimination of low-information predictors with a robust imputation strategy, ensuring that the cleaned dataset is suitable for predictive modeling.
