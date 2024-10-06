@@ -1,0 +1,461 @@
+---
+title: "Data 624 - HW5 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+    latex_engine: xelatex
+---
+
+```{r}
+library(fpp3)
+```
+
+## 8.1 Consider the the number of pigs slaughtered in Victoria, available in the aus_livestock dataset.
+
+### a. Use the ETS() function to estimate the equivalent model for simple exponential smoothing. Find the optimal values of  alpha and l(0) , and generate forecasts for the next four months.
+
+
+```{r}
+# Filter data for pigs in Victoria and fit an ETS model
+vic_pigs_model <- aus_livestock %>% 
+  filter(State == "Victoria", Animal == "Pigs") %>%  # Streamlined filtering
+  model(ETS(Count ~ error("A") + trend("N") + season("N")))  # ETS model with additive error, no trend or seasonality
+
+# Output model fit
+report(vic_pigs_model)
+
+# Generate a 4-period forecast
+vic_pigs_forecast <- vic_pigs_model %>% 
+  forecast(h = 4)
+
+vic_pigs_forecast
+
+# Plot the forecast with custom styling
+vic_pigs_forecast %>%
+  autoplot(filter(aus_livestock, State == "Victoria", Animal == "Pigs")) +  # Plot forecast against actual data
+  ggtitle("Forecast: Pigs Slaughtered in Victoria") +  # Improved title
+  labs(y = "Number of Pigs", x = "Year") +  # Clear axis labels
+  theme_minimal()  # Apply a clean theme for better visual aesthetics
+```
+
+### b. Compute a 95% prediction interval for the first forecast using y(hat) +- 1.96s where s is the standard deviation of the residuals. Compare your interval with the interval produced by R.
+
+```{r}
+# Compute the mean predicted value from the forecast
+y_hat <- mean(vic_pigs_forecast$.mean[1])
+
+# Get residuals by applying the augment function to the model
+augmented_fit <- augment(vic_pigs_model)
+
+# Compute the standard deviation of the residuals
+residual_sd <- sd(augmented_fit$.resid)
+
+# Calculate the 95% prediction interval
+upper_limit_95 <- y_hat + (residual_sd * 1.96)
+lower_limit_95 <- y_hat - (residual_sd * 1.96)
+
+# Store the 95% prediction interval
+interval_95 <- c(lower_limit_95, upper_limit_95)
+
+# Display the interval values
+interval_95
+```
+
+```{r}
+# Calculate the 95% forecast intervals using the updated forecast object
+vic_pigs_hilo <- vic_pigs_forecast %>% hilo()
+
+# Output the 95% prediction interval for the first forecast period
+vic_pigs_hilo$`95%`[1]
+
+```
+
+
+## 8.5 Data set global_economy contains the annual Exports from many countries. Select one country to analyse.
+
+### a. Plot the Exports series and discuss the main features of the data.
+
+```{r}
+# Select a country (e.g., Australia) from the global_economy dataset
+aus_exports <- global_economy %>% filter(Country == "Australia")
+
+# Plot the exports series
+aus_exports %>% 
+  autoplot(Exports) + 
+  ggtitle("Annual Exports of Australia") +
+  ylab("Exports (in billion USD)") +
+  xlab("Year")
+```
+
+
+### b. Use an ETS(A,N,N) model to forecast the series, and plot the forecasts.
+
+```{r}
+# Fit an ETS(A,N,N) model (Exponential Smoothing with additive errors, no trend, and no seasonality)
+aus_ets_ann <- aus_exports %>% model(ETS(Exports ~ error("A") + trend("N") + season("N")))
+
+# Forecast the series
+aus_ets_ann_fc <- aus_ets_ann %>% forecast(h = "5 years")
+
+head(aus_ets_ann_fc)
+
+# Plot the forecasts
+aus_ets_ann_fc %>% 
+  autoplot(aus_exports) + 
+  ggtitle("ETS(A,N,N) Forecast for Australian Exports") +
+  ylab("Exports (in billion USD)") +
+  xlab("Year")
+
+```
+
+
+### c. Compute the RMSE values for the training data.
+
+```{r}
+aus_ets_ann %>% accuracy() %>% select(RMSE)
+```
+
+
+### d. Compare the results to those from an ETS(A,A,N) model. (Remember that the trended model is using one more parameter than the simpler model.) Discuss the merits of the two forecasting methods for this data set.
+
+```{r}
+# Fit an ETS(A,A,N) model (Additive errors, additive trend, no seasonality)
+aus_ets_aan <- aus_exports %>% model(ETS(Exports ~ error("A") + trend("A") + season("N")))
+
+# Forecast using the ETS(A,A,N) model
+aus_ets_aan_fc <- aus_ets_aan %>% forecast(h = "5 years")
+
+# Compare RMSE values for both models
+accuracy_ets_ann <- aus_ets_ann %>% accuracy()
+accuracy_ets_aan <- aus_ets_aan %>% accuracy()
+
+# Display RMSE values for comparison
+accuracy_ets_ann %>% select(RMSE)
+accuracy_ets_aan %>% select(RMSE)
+```
+
+
+### e. Compare the forecasts from both methods. Which do you think is best?
+
+```{r}
+head(aus_ets_aan_fc)
+
+# Plot forecasts from both models for comparison
+aus_ets_ann_fc %>% 
+  autoplot(aus_exports) + 
+  autolayer(aus_ets_aan_fc, series = "ETS(A,A,N)", PI = FALSE) +
+  ggtitle("Comparison of Forecasts: ETS(A,N,N) vs ETS(A,A,N)") +
+  ylab("Exports (in billion USD)") +
+  xlab("Year") +
+  guides(colour = guide_legend(title = "Model"))
+```
+
+
+### f. Calculate a 95% prediction interval for the first forecast for each model, using the RMSE values and assuming normal errors. Compare your intervals with those produced using R.
+
+```{r}
+# Get the RMSE values for each model
+rmse_ets_ann <- accuracy_ets_ann %>% pull(RMSE)
+rmse_ets_aan <- accuracy_ets_aan %>% pull(RMSE)
+
+# Forecasted mean values for the first forecast
+mean_ets_ann <- aus_ets_ann_fc$.mean[1]
+mean_ets_aan <- aus_ets_aan_fc$.mean[1]
+
+# Calculate the 95% prediction intervals using RMSE
+upper_limit_ann <- mean_ets_ann + (1.96 * rmse_ets_ann)
+lower_limit_ann <- mean_ets_ann - (1.96 * rmse_ets_ann)
+
+upper_limit_aan <- mean_ets_aan + (1.96 * rmse_ets_aan)
+lower_limit_aan <- mean_ets_aan - (1.96 * rmse_ets_aan)
+
+# Compare to R's built-in intervals
+aus_ets_ann_fc %>% hilo() %>% select(`95%`)
+aus_ets_aan_fc %>% hilo() %>% select(`95%`)
+
+# Output the intervals
+interval_ann <- c(lower_limit_ann, upper_limit_ann)
+interval_aan <- c(lower_limit_aan, upper_limit_aan)
+
+# Display intervals
+interval_ann
+interval_aan
+
+```
+
+
+
+## 8.6 Forecast the Chinese GDP from the global_economy data set using an ETS model. Experiment with the various options in the ETS() function to see how much the forecasts change with damped trend, or with a Box-Cox transformation. Try to develop an intuition of what each is doing to the forecasts.
+
+[Hint: use a relatively large value of h when forecasting, so you can clearly see the differences between the various options when plotting the forecasts.]
+
+```{r}
+# Filter the global_economy dataset for China
+china_gdp <- global_economy %>% filter(Country == "China")
+
+# Plot the GDP data for visualization
+china_gdp %>%
+  autoplot(GDP) +
+  ggtitle("Chinese GDP Over Time") +
+  ylab("GDP (in billion USD)") +
+  xlab("Year")
+
+
+# Step 1: Calculate optimal Box-Cox lambda using Guerrero method
+lambda_gdp <- china_gdp %>%
+  features(GDP, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Step 2: Fit three ETS models (SES, Holt, Damped) with Box-Cox transformation
+gdp_ets_models <- china_gdp %>%
+  model(
+    ETS_SES = ETS(box_cox(GDP, lambda_gdp) ~ error("A") + trend("N") + season("N")),
+    ETS_Holt = ETS(box_cox(GDP, lambda_gdp) ~ error("A") + trend("A") + season("N")),
+    ETS_Damped = ETS(box_cox(GDP, lambda_gdp) ~ error("A") + trend("Ad") + season("N"))
+  )
+
+# Step 3: Generate forecasts for 20 years using fitted models
+gdp_forecasts <- gdp_ets_models %>% forecast(h = 20)
+
+# Step 4: Plot the original series with forecasts
+gdp_forecasts %>%
+  autoplot(china_gdp, level = NULL) +
+  labs(
+    y = "GDP (Transformed)",
+    title = latex2exp::TeX(paste0("Box-Cox Transformed China GDP (λ = ", round(lambda_gdp, 2), ")"))
+  ) +
+  guides(colour = guide_legend(title = "Forecast Models"))
+
+```
+
+
+## 8.7 Find an ETS model for the Gas data from aus_production and forecast the next few years. Why is multiplicative seasonality necessary here? Experiment with making the trend damped. Does it improve the forecasts?
+
+```{r}
+
+# Load and prepare the data for Gas production in petajoules
+gas_data <- aus_production %>%
+  select(Quarter, Gas) %>%
+  mutate(Gas = as.numeric(Gas)) %>%
+  tsibble(index = Quarter)
+
+# Plot the Gas production series
+gas_data %>%
+  autoplot(Gas) +
+  labs(title = "Gas Production Over Time", y = "Petajoules")
+
+# Fit various ETS models
+gas_models <- gas_data %>%
+  model(
+    Additive_Trend = ETS(Gas ~ error("A") + trend("A") + season("N")),
+    Multiplicative_Seasonal = ETS(Gas ~ error("M") + trend("A") + season("N")),
+    Additive_Seasonal = ETS(Gas ~ error("A") + trend("A") + season("A")),
+    Multiplicative_Seasonal_Trend = ETS(Gas ~ error("M") + trend("A") + season("M")),
+    Damped_Multiplicative = ETS(Gas ~ error("M") + trend("Ad") + season("M"))
+  )
+
+# Forecast for the next 5 years (20 quarters)
+gas_forecasts <- gas_models %>%
+  forecast(h = 20)
+
+# Plot the forecasts with the original data
+gas_forecasts %>%
+  autoplot(gas_data, level = NULL) +
+  labs(y = "Petajoules", title = "Forecasts of Gas Production in Australia") +
+  guides(colour = guide_legend(title = "Model"))
+
+
+```
+
+
+## 8.8 Recall your retail time series data (from Exercise 7 in Section 2.10).
+
+### a. Why is multiplicative seasonality necessary for this series?
+
+```{r}
+set.seed(123)
+
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+autoplot(myseries)
+```
+
+When looking at the retail data, we observe that both the overall trend and the size of the seasonal fluctuations are increasing over time. This suggests that the seasonal variation grows in proportion to the level of the time series. In other words, the higher the retail turnover, the larger the seasonal swings. This makes a multiplicative seasonal model more appropriate, as it allows the seasonal pattern to scale with the changing level of the series, rather than staying constant as it would in an additive model.
+
+### b. Apply Holt-Winters’ multiplicative method to the data. Experiment with making the trend damped.
+
+```{r}
+# Apply Holt-Winters' multiplicative method with and without damped trend
+fit_multiplicative <- myseries %>%
+  model(
+    Multiplicative_Seasonality = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+    Damped_Multiplicative_Trend = ETS(Turnover ~ error("M") + trend("Ad") + season("M"))
+  )
+
+# Forecast for the next 5 years (monthly frequency)
+forecast_multiplicative <- fit_multiplicative %>% forecast(h = "5 years")
+
+# Plot the forecasts along with the original data
+forecast_multiplicative %>%
+  autoplot(myseries, level = NULL) +
+  labs(y = "Turnover (Million AUD)", title = "Australian Retail Turnover with Multiplicative Seasonality") +
+  guides(colour = guide_legend(title = "Forecast Method"))
+
+```
+
+
+### c. Compare the RMSE of the one-step forecasts from the two methods. Which do you prefer?
+
+```{r}
+# Calculate accuracy for one-step-ahead forecasts and extract RMSE
+accuracy_comparison <- fit_multiplicative %>%
+  accuracy() %>%
+  select(.model, RMSE)
+
+# Display RMSE comparison
+print(accuracy_comparison)
+```
+
+
+### d. Check that the residuals from the best method look like white noise.
+
+
+```{r}
+# Fit the model with the best method (multiplicative without damped trend)
+best_fit <- myseries %>%
+  model(best_method = ETS(Turnover ~ error("M") + trend("A") + season("M")))
+
+# Check if residuals resemble white noise
+best_fit %>%
+  gg_tsresiduals() +
+  ggtitle("Residuals of the Best Method (Multiplicative)")
+
+# Box-Pierce test
+box_pierce_result <- myseries %>%
+  model(multiplicative = ETS(Turnover ~ error("M") + trend("A") + season("M"))) %>%
+  augment() %>% 
+  features(.innov, box_pierce, lag = 24, dof = 0)
+
+print(box_pierce_result)
+
+# Ljung-Box test
+ljung_box_result <- myseries %>%
+  model(multiplicative = ETS(Turnover ~ error("M") + trend("A") + season("M"))) %>%
+  augment() %>% 
+  features(.innov, ljung_box, lag = 24, dof = 0)
+
+print(ljung_box_result)
+
+
+```
+
+### e. Now find the test set RMSE, while training the model to the end of 2010. Can you beat the seasonal naïve approach from Exercise 7 in Section 5.11?
+
+
+```{r}
+# Split data: Training set (up to 2010)
+myseries_train <- myseries %>%
+  filter(year(Month) < 2011)
+
+# Fit models: ETS multiplicative and Seasonal Naive
+fit_train <- myseries_train %>%
+  model(
+    multiplicative = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+    snaive = SNAIVE(Turnover)
+  )
+
+# Forecasts: Generate forecasts for the test period (2011 onwards)
+fc <- fit_train %>%
+  forecast(new_data = anti_join(myseries, myseries_train))
+
+# Plot the forecasts along with the original data
+fc %>%
+  autoplot(myseries, level = NULL) +
+  labs(y = "Turnover (Million AUD)", title = "Retail Turnover Forecasts") +
+  guides(colour = guide_legend(title = "Model"))
+
+# Calculate accuracy on the training set
+train_accuracy <- accuracy(fit_train) %>%
+  select(.type, .model, RMSE)
+
+# Calculate accuracy on the test set (2011 onwards)
+test_accuracy <- fc %>%
+  accuracy(myseries) %>%
+  select(.type, .model, RMSE)
+
+# Display training and test set RMSE
+train_accuracy
+test_accuracy
+```
+
+
+## 8.9 For the same retail data, try an STL decomposition applied to the Box-Cox transformed series, followed by ETS on the seasonally adjusted data. How does that compare with your best previous forecasts on the test set?
+
+
+```{r}
+# Calculate the optimal lambda for Box-Cox transformation using the Guerrero method
+optimal_lambda <- myseries %>%
+  features(Turnover, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Perform STL decomposition on the Box-Cox transformed series
+myseries %>%
+  model(STL_decomp = STL(box_cox(Turnover, optimal_lambda) ~ season(window = "periodic"), robust = TRUE)) %>%
+  components() %>%
+  autoplot() +
+  ggtitle("STL Decomposition with Box-Cox Transformation")
+
+# Extract the components from the STL decomposition
+decomposed_components <- myseries %>%
+  model(STL_box = STL(box_cox(Turnover, optimal_lambda) ~ season(window = "periodic"), robust = TRUE)) %>%
+  components()
+
+# Create a new column for seasonally adjusted turnover
+myseries <- myseries %>%
+  mutate(Turnover_adjusted = decomposed_components$season_adjust)
+
+# Filter the training data to include records up to 2010
+training_data <- myseries %>%
+  filter(year(Month) < 2011)
+
+# Fit the ETS model to the seasonally adjusted data
+ets_model <- training_data %>%
+  model(ETS_model = ETS(Turnover_adjusted ~ error("M") + trend("A") + season("M")))
+
+# Visualize the residuals from the fitted ETS model
+ets_model %>%
+  gg_tsresiduals() +
+  ggtitle("Residuals from ETS on Seasonally Adjusted Data")
+
+# Generate forecasts for the test data (2011 and later)
+forecasted_values <- ets_model %>%
+  forecast(new_data = anti_join(myseries, training_data))
+
+# Plot the forecasts alongside the original data
+forecasted_values %>%
+  autoplot(myseries, level = NULL) +
+  labs(y = "Turnover (Million AUD)", title = "Forecasts from STL + Box-Cox + ETS")
+
+# Evaluate RMSE on the training dataset
+training_accuracy <- ets_model %>%
+  accuracy() %>%
+  select(.model, .type, RMSE)
+
+# Calculate RMSE for the test dataset (2011 onward)
+test_accuracy <- forecasted_values %>%
+  accuracy(myseries) %>%
+  select(.model, .type, RMSE)
+
+# Display the accuracy results
+training_accuracy
+test_accuracy
+
+```
