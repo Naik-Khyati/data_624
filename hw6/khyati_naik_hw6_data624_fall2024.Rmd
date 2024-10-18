@@ -1,0 +1,677 @@
+---
+title: "Data 624 - HW6 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+    latex_engine: xelatex
+---
+
+# 9.1 Figure 9.32 shows the ACFs for 36 random numbers, 360 random numbers and 1,000 random numbers.
+
+## a. Explain the differences among these figures. Do they all indicate that the data are white noise?
+
+The primary difference among these figures lies in the number of random numbers each graph represents. As we move from the ACF for 36 random numbers to the ACF for 1,000 random numbers, we observe a general trend: the peaks and valleys of the ACFs diminish in height. 
+
+This observation can be attributed to the bounded area defined by the blue lines, which represent the significance threshold calculated by the formula:
+
+\[
+\pm 1.96 \times \frac{1}{\sqrt{N}}
+\]
+
+where \( N \) is the length of the time series. Notably, in all three graphs, the autocorrelations remain within this bounded area, suggesting that all data sets exhibit characteristics of white noise.
+
+
+## b. Why are the critical values at different distances from the mean of zero? Why are the autocorrelations different in each figure when they each refer to white noise?
+
+The critical values differ from the mean of zero due to the calculation method:
+
+\[
+\pm 1.96 \times \frac{1}{\sqrt{N}}
+\]
+
+As the length of the time series \( N \) increases, these critical values approach zero because the denominator increases, reducing the distance from the mean. This pattern also corresponds to the observed differences in autocorrelation among the figures. Specifically, as the sample size of random numbers increases, the autocorrelations tend to decrease, reinforcing the idea that the data in each figure still reflect white noise properties, despite variations in their statistical characteristics.
+
+# 9.2 A classic example of a non-stationary series are stock prices. Plot the daily closing prices for Amazon stock (contained in gafa_stock), along with the ACF and PACF. Explain how each plot shows that the series is non-stationary and should be differenced.
+
+```{r}
+library(fpp3)
+```
+
+
+```{r}
+# Filter the GAFA stock data for Amazon's daily closing prices
+# Plot the time series, ACF, and PACF for Amazon stock prices
+amazon_stock <- gafa_stock %>%
+  filter(Symbol == "AMZN")
+
+# Plot the closing prices along with ACF and PACF
+amazon_stock %>%
+  gg_tsdisplay(Close, plot_type = 'partial') +
+  labs(title = "Daily Closing Prices of Amazon Stock (AMZN)")
+
+# Determine how many differences are needed for stationarity (ndiffs)
+diff_count <- amazon_stock %>%
+  features(Close, unitroot_ndiffs)
+
+# Check stationarity using the KPSS test
+kpss_amzn <- amazon_stock %>%
+  features(Close, unitroot_kpss)
+```
+
+Upon analyzing the daily closing prices of Amazon stock, we observe an upward trend that suggests the series is non-stationary. Here’s how each plot reinforces that:
+
+**ACF and PACF Analysis:**
+
+**Autocorrelation Function (ACF):**  
+The ACF plot shows that the autocorrelation starts high and decreases slowly across lags. This is a typical sign of non-stationarity, as a stationary series would see the autocorrelations drop off quickly after a few lags. The slow decay indicates the presence of a trend in the data.  
+
+**Partial Autocorrelation Function (PACF):**  
+In the PACF plot, the first lag shows a strong positive correlation, while subsequent lags have smaller values. This pattern is common in non-stationary series because, unlike stationary series, the PACF doesn’t drop off abruptly after the first lag, suggesting the data needs to be differenced.
+
+**Differencing for Stationarity:**  
+Based on the KPSS test, one differencing step is sufficient to transform the non-stationary Amazon stock data into a stationary series. This is confirmed by the unit root test, indicating that the first difference will eliminate the trend, making the series more suitable for modeling.
+
+# 9.3 For the following series, find an appropriate Box-Cox transformation and order of differencing in order to obtain stationary data.
+
+## a. Turkish GDP from global_economy.
+
+```{r}
+
+# Load the global_economy dataset and filter for Turkey's GDP data
+gdp_turkey <- global_economy %>%
+  filter(Country == "Turkey")
+
+# Use the Guerrero method to determine the best lambda for Box-Cox transformation
+lambda_gdp <- gdp_turkey %>%
+  features(GDP, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Plot the transformed Turkish GDP using the calculated lambda
+gdp_turkey %>%
+  autoplot(box_cox(GDP, lambda_gdp)) +
+  labs(y = "Box-Cox Transformed GDP",
+       title = latex2exp::TeX(paste0(
+         "Box-Cox Transformation of Turkish GDP with $\\lambda$ = ",
+         round(lambda_gdp, 2))))
+
+# Apply first-order differencing to the Box-Cox transformed GDP series
+gdp_turkey <- gdp_turkey %>%
+  mutate(diff_transformed_gdp = difference(box_cox(GDP, lambda_gdp)))
+
+# Plot the differenced Box-Cox transformed series to check for stationarity
+gdp_turkey %>%
+  autoplot(diff_transformed_gdp) +
+  labs(y = "Differenced Transformed GDP",
+       title = latex2exp::TeX(paste0(
+         "First Difference of Box-Cox Transformed Turkish GDP with $\\lambda$ = ",
+         round(lambda_gdp, 2))))
+
+# Perform the KPSS test to assess stationarity of the differenced series
+gdp_kpss_test <- gdp_turkey %>%
+  features(diff_transformed_gdp, unitroot_kpss)
+
+```
+
+**Box-Cox Transformation:**  
+The Guerrero method was applied to determine the appropriate value of lambda, ensuring the GDP data is stabilized with respect to variance. The Box-Cox transformation helps deal with non-linearity in variance, common in economic series like GDP.
+
+**Differencing for Stationarity:**  
+After applying the Box-Cox transformation, the series is differenced once to remove any trends. The first difference of the transformed series is plotted to check for stationarity visually.
+
+**KPSS Test:**  
+Finally, the KPSS test is applied to the differenced data. A low test statistic (p-value > 0.1) suggests that the differenced series is stationary, indicating that the transformation and differencing have successfully stabilized the data.
+
+## b. Accommodation takings in the state of Tasmania from aus_accommodation.
+
+```{r}
+# Load accommodation data for Tasmania
+tas_accom <- aus_accommodation %>%
+  filter(State == "Tasmania")
+
+# Use the Guerrero method to determine the appropriate lambda for the Box-Cox transformation
+lambda_accom <- tas_accom %>%
+  features(Takings, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Transform the data using Box-Cox and apply differencing to explore stationarity
+tas_accom %>%
+  transmute(
+    `Original Takings` = Takings,
+    `Box-Cox Transformed` = box_cox(Takings, lambda_accom),
+    `Annual Difference` = difference(box_cox(Takings, lambda_accom), 4),
+    `Doubly Differenced` = difference(difference(box_cox(Takings, lambda_accom), 4), 1)
+  ) %>%
+  pivot_longer(-Date, names_to = "Type", values_to = "Takings") %>%
+  mutate(
+    Type = factor(Type, levels = c(
+      "Original Takings", 
+      "Box-Cox Transformed", 
+      "Annual Difference", 
+      "Doubly Differenced"))
+  ) %>%
+  ggplot(aes(x = Date, y = Takings)) +
+  geom_line() +
+  facet_grid(vars(Type), scales = "free_y") +
+  labs(title = "Accommodation Takings in Tasmania", y = NULL)
+
+# Test for stationarity using the KPSS test after annual differencing
+tas_accom %>%
+  mutate(diff_bc_takings = difference(box_cox(Takings, lambda_accom), 4)) %>%
+  features(diff_bc_takings, unitroot_kpss)
+
+# Test for stationarity after applying double differencing
+tas_accom %>%
+  mutate(double_diff_bc_takings = difference(difference(box_cox(Takings, lambda_accom), 4), 1)) %>%
+  features(double_diff_bc_takings, unitroot_kpss)
+
+# Test for seasonal differencing required (NSDIFF)
+tas_accom %>%
+  mutate(box_cox_takings = box_cox(Takings, lambda_accom)) %>%
+  features(box_cox_takings, unitroot_nsdiffs)
+
+# Test for additional differencing on the seasonal differenced data (NDIFF)
+tas_accom %>%
+  mutate(seasonal_diff_bc_takings = difference(box_cox(Takings, lambda_accom), 4)) %>%
+  features(seasonal_diff_bc_takings, unitroot_ndiffs)
+```
+
+
+## c. Monthly sales from souvenirs.
+
+```{r}
+# Calculate the best lambda for Box-Cox transformation for souvenirs sales
+lambda_sales <- souvenirs %>%
+  features(Sales, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Plot the Box-Cox transformed sales
+souvenirs %>%
+  autoplot(box_cox(Sales, lambda_sales)) +
+  labs(y = "Transformed Sales",
+       title = latex2exp::TeX(paste0(
+         "Box-Cox Transformation of Souvenir Sales with $\\lambda$ = ",
+         round(lambda_sales, 2))))
+
+# Apply transformations and plot different differenced series for comparison
+souvenirs %>%
+  transmute(
+    `Original Sales` = Sales,
+    `Box-Cox Sales` = box_cox(Sales, lambda_sales),
+    `Annual Difference` = difference(box_cox(Sales, lambda_sales), 12),
+    `Doubly Differenced` = difference(difference(box_cox(Sales, lambda_sales), 12), 1)
+  ) %>%
+  pivot_longer(-Month, names_to = "Type", values_to = "Sales") %>%
+  mutate(
+    Type = factor(Type, levels = c(
+      "Original Sales", 
+      "Box-Cox Sales", 
+      "Annual Difference", 
+      "Doubly Differenced"))
+  ) %>%
+  ggplot(aes(x = Month, y = Sales)) +
+  geom_line() +
+  facet_grid(vars(Type), scales = "free_y") +
+  labs(title = "Souvenir Sales", y = NULL)
+
+# KPSS test on first difference of Box-Cox transformed data
+souvenirs %>%
+  mutate(diff_bc_sales = difference(box_cox(Sales, lambda_sales), 12)) %>%
+  features(diff_bc_sales, unitroot_kpss)
+
+# KPSS test on doubly differenced Box-Cox transformed data
+souvenirs %>%
+  mutate(double_diff_bc_sales = difference(difference(box_cox(Sales, lambda_sales), 12), 1)) %>%
+  features(double_diff_bc_sales, unitroot_kpss)
+
+# Test if seasonal differencing is required using NSDIFF
+souvenirs %>%
+  mutate(box_cox_sales = box_cox(Sales, lambda_sales)) %>%
+  features(box_cox_sales, unitroot_nsdiffs)
+
+# Additional differencing (NDIFF) test on seasonally differenced series
+souvenirs %>%
+  mutate(seasonal_diff_bc_sales = difference(box_cox(Sales, lambda_sales), 12)) %>%
+  features(seasonal_diff_bc_sales, unitroot_ndiffs)
+
+```
+
+
+# 9.5 For your retail data (from Exercise 7 in Section 2.10), find the appropriate order of differencing (after transformation if necessary) to obtain stationary data.
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Filter monthly data by selecting a random 'Series ID'
+retail_data <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`, 1))
+
+# Plot the original turnover data
+retail_data %>% 
+  autoplot(Turnover) + 
+  labs(title = "Original Retail Turnover Data", y = "Turnover")
+
+# Calculate the optimal lambda for Box-Cox transformation using guerrero method
+lambda_trans <- retail_data %>%
+  features(Turnover, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Plot the Box-Cox transformed turnover data
+retail_data %>%
+  autoplot(box_cox(Turnover, lambda_trans)) +
+  labs(y = "",
+       title = latex2exp::TeX(paste0(
+         "Transformed Retail Turnover with $\\lambda$ = ",
+         round(lambda_trans, 2))))
+
+# Create new columns for the original, Box-Cox transformed, and differenced data
+retail_data %>% 
+  transmute(
+    `Original Turnover` = Turnover,
+    `Box-Cox Transformed Turnover` = box_cox(Turnover, lambda_trans),
+    `Yearly Difference (Box-Cox)` = difference(box_cox(Turnover, lambda_trans), 12),
+    `Double Difference (Box-Cox)` = difference(difference(box_cox(Turnover, lambda_trans), 12), 1)
+  ) %>% 
+  pivot_longer(-Month, names_to = "Transformation", values_to = "Turnover") %>%
+  mutate(
+    Transformation = factor(Transformation, levels = c(
+      "Original Turnover",
+      "Box-Cox Transformed Turnover",
+      "Yearly Difference (Box-Cox)",
+      "Double Difference (Box-Cox)"))
+  ) %>%
+  ggplot(aes(x = Month, y = Turnover)) +
+  geom_line() +
+  facet_grid(vars(Transformation), scales = "free_y") +
+  labs(title = "Retail Turnover Transformations", y = NULL)
+
+# Check for seasonal differencing requirements using nsdiffs (non-seasonal differencing)
+retail_data %>%
+  mutate(box_cox_turnover = box_cox(Turnover, lambda_trans)) %>%
+  features(box_cox_turnover, unitroot_nsdiffs)
+
+# Check for first-order differencing requirements after seasonal differencing
+retail_data %>%
+  mutate(box_cox_turnover = difference(box_cox(Turnover, lambda_trans), 12)) %>%
+  features(box_cox_turnover, unitroot_ndiffs)
+```
+
+
+# 9.6 Simulate and plot some data from simple ARIMA models.
+
+## a. Use the following R code to generate data from an AR(1) model with  
+y <- numeric(100)
+e <- rnorm(100)
+for(i in 2:100)
+y[i] <- 0.6*y[i-1] + e[i]
+sim <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+
+for(i in 2:100)
+  y[i] <- 0.6*y[i-1] + e[i]
+
+sim <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+
+## b. Produce a time plot for the series. How does the plot change as you change  
+```{r}
+sim %>% autoplot(y)
+
+# phi=0.2
+for(i in 2:100)
+  y[i] <- 0.2*y[i-1] + e[i]
+sim02 <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+# phi=1.0
+for(i in 2:100)
+  y[i] <- 1.0*y[i-1] + e[i]
+sim10 <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+sim02 %>% autoplot(y)
+
+sim10 %>% autoplot(y)
+```
+
+
+## c. Write your own code to generate data from an MA(1) model with  
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+
+for(i in 2:100)
+  y[i] <- e[i] + 0.6*e[i-1]
+
+sim_ma1 <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+
+## d. Produce a time plot for the series. How does the plot change as you change  
+```{r}
+sim_ma1 %>% autoplot(y)
+
+# theta is 0.2
+for(i in 2:100)
+  y[i] <- e[i] + 0.2*e[i-1]
+sim_ma02 <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+# theta is 1.0
+for(i in 2:100)
+  y[i] <- e[i] + 1.0*e[i-1]
+sim_ma10 <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+sim_ma02 %>% autoplot(y)
+
+sim_ma10 %>% autoplot(y)
+```
+
+
+## e. Generate data from an ARMA(1,1) model with  
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+
+phi <- 0.6
+theta <- 0.6
+
+for(i in 2:100)
+  y[i] <- phi*y[i-1] + theta*e[i-1] + e[i]
+
+sim_arma11 <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+
+## f. Generate data from an AR(2) model (Note that these parameters will give a non-stationary series.)
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+
+for(i in 3:100)
+  y[i] <- -0.8*y[i-1] + 0.3*y[i-2] + e[i]
+
+sim_ar2 <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+
+## g. Graph the latter two series and compare them.
+
+```{r}
+sim_arma11 %>% autoplot(y)
+
+sim_ar2 %>% autoplot(y)
+```
+
+
+# 9.7 Consider aus_airpassengers, the total number of passengers (in millions) from Australian air carriers for the period 1970-2011.
+
+```{r}
+# Explore the first few rows and plot the data
+aus_airpassengers %>% head()
+aus_airpassengers %>% autoplot()
+
+# Calculate lambda for Box-Cox transformation using the Guerrero method
+lambda <- aus_airpassengers %>%
+  features(Passengers, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Plot Box-Cox transformed data
+aus_airpassengers %>%
+  autoplot(box_cox(Passengers, lambda)) +
+  labs(title = paste0("Transformed Passenger Data with Lambda = ", round(lambda, 2)))
+
+```
+
+
+## a. Use ARIMA() to find an appropriate ARIMA model. What model was selected. Check that the residuals look like white noise. Plot forecasts for the next 10 periods.
+
+```{r}
+# Fit the ARIMA model
+aus_air_mod <- aus_airpassengers %>% model(ARIMA(Passengers, stepwise = F))
+
+# Report the selected model
+report(aus_air_mod)
+
+# Plot residual diagnostics to check for white noise
+aus_air_mod %>% gg_tsresiduals()
+
+# Forecast for the next 10 periods
+aus_air_fc <- aus_air_mod %>% forecast(h=10)
+
+# Plot the forecast
+autoplot(aus_air_fc, aus_airpassengers) +
+  labs(title="Number of passengers (in millions) from Australian air carriers", y="(in millions)")
+```
+
+
+## b. Write the model in terms of the backshift operator.
+
+Model: ARIMA(0,2,1). As the model has no p term, thus AR(0) and no constant, the model in terms of backshift operator is:
+(1-B)^2y(t)=(1+theta(1)B)epsilon(t)
+
+## c. Plot forecasts from an ARIMA(0,1,0) model with drift and compare these to part a.
+
+```{r}
+# Fit ARIMA(0,1,0) model with drift
+aus_air_arima010 <- aus_airpassengers %>%
+  model(ARIMA(Passengers ~ pdq(0,1,0)))
+
+# Report the model
+report(aus_air_arima010)
+
+# Forecast for the next 10 periods
+aus_air_fc_010 <- aus_air_arima010 %>% forecast(h=10)
+
+# Plot the forecast
+autoplot(aus_air_fc_010, aus_airpassengers) +
+  labs(title="Number of passengers (in millions) from Australian air carriers (ARIMA(0,1,0))", y="(in millions)")
+
+```
+
+
+## d. Plot forecasts from an ARIMA(2,1,2) model with drift and compare these to parts a and c. Remove the constant and see what happens.
+
+```{r}
+# Fit ARIMA(2,1,2) with drift
+aus_air_arima212 <- aus_airpassengers %>%
+  model(ARIMA(Passengers ~ 1 + pdq(2,1,2)))
+
+# Report the model
+report(aus_air_arima212)
+
+# Forecast for the next 10 periods
+aus_air_fc_212 <- aus_air_arima212 %>% forecast(h=10)
+
+# Plot the forecast
+autoplot(aus_air_fc_212, aus_airpassengers) +
+  labs(title="Number of passengers (in millions) from Australian air carriers (ARIMA(2,1,2))", y="(in millions)")
+
+# Fit ARIMA(2,1,2) with no constant (exclude constant)
+aus_air_arima212_noCon <- aus_airpassengers %>%
+  model(ARIMA(Passengers ~ 0 + pdq(2,1,2) + PDQ(0,0,0)))
+
+# Report the model
+report(aus_air_arima212_noCon)
+
+# Forecast for the next 10 periods
+aus_air_fc_212_noCon <- aus_air_arima212_noCon %>% forecast(h=10)
+
+# Plot the forecast
+autoplot(aus_air_fc_212_noCon, aus_airpassengers) +
+  labs(title="ARIMA(2,1,2) with no constant", y="(in millions)")
+
+```
+
+
+## e. Plot forecasts from an ARIMA(0,2,1) model with a constant. What happens?
+
+```{r}
+# Fit ARIMA(0,2,1) with a constant
+aus_air_arima021 <- aus_airpassengers %>%
+  model(ARIMA(Passengers ~ 1 + pdq(0,2,1)))
+
+# Report the model
+report(aus_air_arima021)
+
+# Forecast for the next 10 periods
+aus_air_fc_021 <- aus_air_arima021 %>% forecast(h=10)
+
+# Plot the forecast
+autoplot(aus_air_fc_021, aus_airpassengers) +
+  labs(title="Number of passengers (in millions) from Australian air carriers (ARIMA(0,2,1))", y="(in millions)")
+```
+
+
+# 9.8 For the United States GDP series (from global_economy):
+
+```{r}
+# Extract US GDP data and convert it to billions
+us_gdp_data <- global_economy %>%
+  filter(Country == "United States") %>%
+  mutate(GDP_billions = GDP / 1e9)
+
+# Display the first few rows of the data
+head(us_gdp_data)
+
+# Plot the original GDP data
+us_gdp_data %>% autoplot(GDP_billions) + 
+  labs(title = "US GDP Over Time", y = "GDP (in Billions)")
+```
+
+
+## a. if necessary, find a suitable Box-Cox transformation for the data;
+
+```{r}
+# Find the optimal Box-Cox lambda using the guerrero method
+lambda_bc <- us_gdp_data %>%
+  features(GDP_billions, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+# Apply the Box-Cox transformation to the GDP data
+us_gdp_data %>%
+  autoplot(box_cox(GDP_billions, lambda_bc)) +
+  labs(y = "", title = latex2exp::TeX(paste0(
+    "Box-Cox Transformed US GDP (Lambda = ", round(lambda_bc, 2), ")")))
+
+# Store the transformed GDP data in a new column
+us_gdp_data <- us_gdp_data %>%
+  mutate(GDP_transformed = box_cox(GDP_billions, lambda_bc))
+
+# Calculate the first difference of the transformed GDP
+us_gdp_data <- us_gdp_data %>%
+  mutate(GDP_diff = difference(GDP_transformed))
+
+# Plot ACF and PACF for differenced GDP
+us_gdp_data %>%
+  ACF(GDP_diff) %>%
+  autoplot()
+
+us_gdp_data %>%
+  PACF(GDP_diff) %>%
+  autoplot()
+
+```
+
+
+## b. fit a suitable ARIMA model to the transformed data using ARIMA();
+
+```{r}
+# Fit an automatic ARIMA model to the transformed GDP data
+gdp_arima_model <- us_gdp_data %>% 
+  model(ARIMA(GDP_transformed))
+
+# Display the model summary
+report(gdp_arima_model)
+
+```
+
+## c. try some other plausible models by experimenting with the orders chosen;
+
+```{r}
+# Fit various ARIMA models with different pdq combinations
+arima_111 <- us_gdp_data %>%
+  model(ARIMA(GDP_transformed ~ pdq(1,1,1)))
+
+arima_211 <- us_gdp_data %>%
+  model(ARIMA(GDP_transformed ~ pdq(2,1,1)))
+
+arima_112 <- us_gdp_data %>%
+  model(ARIMA(GDP_transformed ~ pdq(1,1,2)))
+
+arima_210 <- us_gdp_data %>%
+  model(ARIMA(GDP_transformed ~ pdq(2,1,0)))
+
+```
+
+
+## d. choose what you think is the best model and check the residual diagnostics;
+
+```{r}
+# Check residuals of the initial ARIMA model
+gdp_arima_model %>% gg_tsresiduals()
+
+# Check residuals of alternative models
+arima_111 %>% gg_tsresiduals()
+report(arima_111)
+
+arima_211 %>% gg_tsresiduals()
+report(arima_211)
+
+arima_112 %>% gg_tsresiduals()
+report(arima_112)
+
+arima_210 %>% gg_tsresiduals()
+report(arima_210)
+
+```
+
+
+## e. produce forecasts of your fitted model. Do the forecasts look reasonable?
+
+```{r}
+# Forecast the next 10 periods using the selected model
+gdp_forecast <- gdp_arima_model %>% forecast(h = 10)
+
+# Plot the forecast with the original data
+gdp_forecast %>%
+  autoplot(us_gdp_data) +
+  labs(title = "US GDP Forecast", y = "Transformed GDP")
+
+```
+
+
+## f. compare the results with what you would obtain using ETS() (with no transformation).
+
+```{r}
+# Fit multiple ETS models, including Simple Exponential Smoothing (SES), Holt, and Damped models
+gdp_ets_models <- us_gdp_data %>%
+  model(
+    ETS_Model = ETS(GDP_billions),
+    Simple_Exp_Smoothing = ETS(GDP_billions ~ error("A") + trend("N") + season("N")),
+    Holt_Trend = ETS(GDP_billions ~ error("A") + trend("A") + season("N")),
+    Damped_Holt = ETS(GDP_billions ~ error("A") + trend("Ad") + season("N")),
+    ARIMA_Model = ARIMA(GDP_billions)
+  )
+
+# Forecast for the next 30 periods
+gdp_forecast_ets <- gdp_ets_models %>% forecast(h = 30)
+
+# Plot all the forecasts for comparison
+gdp_forecast_ets %>%
+  autoplot(us_gdp_data, level = NULL) +
+  labs(y = "GDP (in Billions USD)", title = "US GDP Forecast Comparison") +
+  guides(colour = guide_legend(title = "Model Type"))
+
+```
