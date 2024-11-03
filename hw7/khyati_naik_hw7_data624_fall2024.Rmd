@@ -1,0 +1,240 @@
+---
+title: "Data 624 - HW7 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+    latex_engine: xelatex
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+---
+
+## 6.2. ##
+### Developing a model to predict permeability (see Sect. 1.4) could save significant resources for a pharmaceutical company, while at the same time more rapidly identifying molecules that have a sufficient permeability to become a drug:###
+
+
+### (a) Start R and use these commands to load the data: The matrix fingerprints contains the 1,107 binary molecular predictors for the 165 compounds, while permeability contains permeability response.###
+
+```{r warning=FALSE}
+library(AppliedPredictiveModeling)
+library(caret)
+library(caTools)
+library(corrplot)
+library(tidyverse)
+library(pls)
+library(arm)
+library(lars)
+library(elasticnet)
+library(RANN)
+```
+
+```{r}
+data(permeability)
+```
+  
+### (b) The fingerprint predictors indicate the presence or absence of substructures of a molecule and are often sparse meaning that relatively few of the molecules contain each substructure. Filter out the predictors that have low frequencies using the nearZeroVar function from the caret package. How many predictors are left for modeling?###
+
+```{r}
+### Step b: Filter Near Zero Variance Predictors
+nzv_indices <- nearZeroVar(fingerprints)  # Identify predictors with near-zero variance
+filtered_fingerprints <- fingerprints[, -nzv_indices]  # Remove those predictors
+remaining_predictors_count <- ncol(filtered_fingerprints)  # Count remaining predictors
+remaining_predictors_count
+```
+Initially, there were 1107 predictors; after filtering, 388 predictors remain.
+  
+### (c) Split the data into a training and a test set, pre-process the data, and tune a PLS model. How many latent variables are optimal and what is the corresponding resampled estimate of R2?###
+
+```{r}
+### Step c: Data Splitting
+set.seed(123)  # Ensure reproducibility
+partition_index <- createDataPartition(permeability, p = .8, list = FALSE)  # Create an index for 80% training data
+
+# Split the data into training and testing sets
+train_fingerprints <- filtered_fingerprints[partition_index, ]  # Training set for fingerprints
+test_fingerprints <- filtered_fingerprints[-partition_index, ]  # Testing set for fingerprints
+train_permeability <- permeability[partition_index]  # Training set for permeability
+test_permeability <- permeability[-partition_index]  # Testing set for permeability
+
+# Set up 10-fold cross-validation
+cv_control <- trainControl(method = "cv", number = 10)
+
+# Train a Partial Least Squares (PLS) model
+pls_model <- train(train_fingerprints, train_permeability, method = "pls", 
+                   metric = "Rsquared", tuneLength = 20, trControl = cv_control, 
+                   preProc = c("center", "scale"))
+
+# Plot the results of the PLS model
+plot(pls_model)
+
+pls_model  # Display the PLS model results
+```
+
+Based on the graph and results, the optimal number of components is determined to be 6, yielding an R-Squared value of 0.5335.
+
+  
+### (d) Predict the response for the test set. What is the test set estimate of R2?###
+
+```{r}
+### Step d: Make Predictions
+predicted_values <- predict(pls_model, test_fingerprints)  # Generate predictions on the test set
+
+# Combine observed and predicted values in a new data frame with correct column names
+results_comparison <- data.frame(obs = test_permeability, pred = predicted_values)  
+
+# Calculate prediction accuracy metrics using the default summary function
+prediction_accuracy <- defaultSummary(results_comparison)
+
+# Display the prediction accuracy metrics
+prediction_accuracy
+
+```
+
+The R-Squared value for the test set is found to be 0.3244.
+  
+### (e) Try building other models discussed in this chapter. Do any have better predictive performance?###
+
+```{r warning=FALSE}
+### Step e: Explore Alternative Models
+# Train a Least Angle Regression (LARS) model
+set.seed(123)
+lars_model <- train(train_fingerprints, train_permeability, method = "lars", metric = "Rsquared",
+                    tuneLength = 20, trControl = cv_control, preProc = c("center", "scale"))
+plot(lars_model)  # Visualize LARS model results
+
+lars_model  # Display LARS model results
+
+# Set up for Elastic Net model training
+set.seed(123)
+enet_parameter_grid <- expand.grid(.lambda = c(0, 0.01, .1), .fraction = seq(.05, 1, length = 20))  # Define parameter grid
+enet_model <- train(train_fingerprints, train_permeability, method = "enet",
+                    tuneGrid = enet_parameter_grid, trControl = cv_control, preProc = c("center", "scale"))
+plot(enet_model)  # Visualize Elastic Net model results
+
+enet_model  # Display Elastic Net model results
+```
+
+Upon reviewing the LARS and Elastic Net models, the optimal settings for LARS yield a fraction of 0.05 with an R-Squared value of 0.5354, while the Elastic Net model shows an optimal lambda of 0.1 and fraction of 0.15 with an R-Squared value of 0.5429. Both alternative models underperformed relative to the PLS model.   
+  
+### (f) Would you recommend any of your models to replace the permeability laboratory experiment?###
+
+I do not recommend using any of the models tested to replace the permeability laboratory experiment. Instead, I plan to investigate *XGBoost* or *Support Vector Machines (SVM)* to see if they can achieve a higher R-Squared and lower RMSE and MAE. I believe these methods can more effectively manage the larger number of components or predictors compared to those previously used. In particular, SVM may be more beneficial when the number of predictors exceeds the number of samples, making it a potentially more robust option.
+
+
+## 6.3 ##
+
+### A chemical manufacturing process for a pharmaceutical product was discussed in Sect. 1.4. In this problem, the objective is to understand the relationship between biological measurements of the raw materials (predictors), measurements of the manufacturing process (predictors), and the response of product yield. Biological predictors cannot be changed but can be used to assess the quality of the raw material before processing. On the other hand, manufacturing process predictors can be changed in the manufacturing process. Improving product yield by 1 % will boost revenue by approximately one hundred thousand dollars per batch:###
+
+  
+### (a) Start R and use these commands to load the data: The matrix processPredictors contains the 57 predictors: Predictors contains the 57 predictors (12 describing the input biological material and 45 describing the process predictors) for the 176 manufacturing runs. yield contains the percent yield for each run.###
+
+```{r}
+data(ChemicalManufacturingProcess)
+```
+
+  
+### (b) A small percentage of cells in the predictor set contain missing values. Use an imputation function to fill in these missing values (e.g., see Sect. 3.8).###
+
+```{r}
+# Check for missing values in the dataset
+missing_values_count <- sum(is.na(ChemicalManufacturingProcess))
+
+# Impute missing values using K-Nearest Neighbors (KNN)
+imputer <- preProcess(ChemicalManufacturingProcess, method = "knnImpute")
+imputed_data <- predict(imputer, ChemicalManufacturingProcess)
+
+# Check if any missing values remain after imputation
+remaining_missing_count <- sum(is.na(imputed_data))
+```
+
+KNN imputation transformed 106 missing values into their imputed counterparts. 
+KNN was chosen due to the biological nature of the dataset, which often displays easier density functions.Biological data usually reveals patterns where similar observations yield similar outcomes. Instead of discarding the missing data, I chose to retain it to avoid losing potential relationships within the dataset, especially given the small sample size.
+  
+### (c) Split the data into a training and a test set, pre-process the data, and tune a model of your choice from this chapter. What is the optimal value of the performance metric?###
+
+```{r}
+### Step c: Filter Variables and Split Data
+imputed_data <- imputed_data[, -nearZeroVar(imputed_data)]  # Remove near-zero variance predictors
+features <- dplyr::select(imputed_data, -Yield)  # Select predictors excluding the target variable
+target <- imputed_data$Yield  # Define the target variable
+
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(target, p = .8, list = FALSE)  # Create a training set index
+
+# Split the dataset into training and testing sets
+training_features <- features[train_index, ] %>% as.matrix()  # Training features
+testing_features <- features[-train_index, ] %>% as.matrix()   # Testing features
+training_target <- target[train_index]  # Training target
+testing_target <- target[-train_index]   # Testing target
+
+# Set up cross-validation control with 10 folds
+control_settings <- trainControl(method = "cv", number = 10)
+# Train a Partial Least Squares (PLS) regression model
+pls_model <- train(x = training_features, y = training_target, method = "pls", 
+                   metric = "Rsquared", tuneLength = 20, trControl = control_settings, 
+                   preProc = c("center", "scale"))
+plot(pls_model)  # Plot model performance
+
+# Display the model results
+pls_model$results
+```
+
+The optimal number of components for PLS regression was found to be 3, achieving an R-Squared value of 0.6025.
+
+  
+### (d) Predict the response for the test set. What is the value of the performance metric and how does this compare with the resampled performance metric on the training set?###
+
+```{r}
+### Step d: Make Predictions
+predicted_yield <- predict(pls_model, testing_features)  # Generate predictions on the test set
+results_summary <- data.frame(obs = testing_target, pred = predicted_yield)  # Combine observed and predicted values
+
+# Calculate prediction accuracy metrics
+prediction_metrics <- defaultSummary(results_summary)
+```
+
+We chose PLS regression due to its superior performance in a previous analysis, but the lower R-Squared value on the resampled data compared to the training set indicates that the model may require further tuning.
+
+### (e) Which predictors are most important in the model you have trained? Do either the biological or process predictors dominate the list?###
+
+```{r}
+### Step e: Identify Top Predictors
+# Assess variable importance from the model
+importance_plot <- varImp(pls_model, scale = FALSE)
+
+importance_data <- data.frame(
+  Predictor = rownames(importance_plot$importance),
+  Importance_Score = importance_plot$importance$Overall
+)
+
+# Sort the importance scores in descending order
+sorted_importance <- importance_data[order(-importance_data$Importance_Score), ]
+
+# Extract the top 10 predictors
+top_predictors <- head(sorted_importance$Predictor, 10)
+top_predictors
+
+# Create a new dataframe with the top predictors and yield
+top_predictors_df <- dplyr::select(features, all_of(top_predictors))
+top_predictors_df$Yield <- target
+```
+
+In the top 10 predictors, manufacturing process variables dominate, with 7 out of 10 being process-related and only 3 from biological materials.
+
+### (f) Explore the relationships between each of the top predictors and the response. How could this information be helpful in improving yield in future runs of the manufacturing process?###
+
+
+```{r}
+### Step f: Correlation Analysis
+# Calculate correlation between numeric variables in the top predictors
+correlation_data <- cor(dplyr::select_if(top_predictors_df, is.numeric), use = "complete.obs")
+# Create a correlation plot
+corrplot::corrplot(correlation_data, method = 'number', type = 'lower', number.cex = 0.75, tl.cex= 0.75)
+```
+
+The correlation analysis reveals interesting insights: 
+Three negative correlations with yield were found among manufacturing processes, with Manufacturing Process 36 showing the most significant negative impact. In contrast, Manufacturing Process 32 exhibited the highest positive correlation at 0.61. All biological material predictors positively correlated with yield, indicating their relevance to yield outcomes. The correlation among predictors is noteworthy, with all biological materials showing positive relationships with each other. The lowest negative correlation between predictors was -0.79, observed between Manufacturing Process 36 and Manufacturing Process 32, as well as between Manufacturing Process 13 and Manufacturing Process 9.
