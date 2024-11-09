@@ -1,0 +1,354 @@
+---
+title: "Data 624 - HW8 (Fall 2024)"
+author: 'Khyati Naik'
+output:
+  html_document:  
+    theme: cerulean
+    highlight: pygments
+    css: Lab3.css
+    toc: true
+    toc_float: true
+  pdf_document:
+    extra_dependencies: ["geometry", "multicol", "multirow", "xcolor"]
+    latex_engine: xelatex
+---
+
+
+## 7.2
+
+### Friedman (1991) introduced several benchmark data sets create by simulation. One of these simulations used the following nonlinear equation to create data: y = 10 sin(πx1x2) + 20(x3 − 0.5)2 + 10x4 + 5x5 + N(0, σ2) where the x values are random variables uniformly distributed between [0, 1] (there are also 5 other non-informative variables also created in the simulation). The package mlbench contains a function called mlbench.friedman1 that simulates these data. Tune several models on these data.Which models appear to give the best performance? Does MARS select the informative predictors (those named X1–X5)?
+
+```{r warning=FALSE}
+library(caret)
+library(nnet)
+library(earth)
+library(kernlab)
+library(mlbench)
+library(AppliedPredictiveModeling)
+library(RANN)
+library(dplyr)
+```
+
+
+```{r}
+set.seed(200)
+trainingData <- mlbench.friedman1(200, sd = 1)
+## We convert the 'x" data from a matrix to a dataframe
+## One reason is that this will give the columns names.
+trainingData$x <- data.frame(trainingData$x)
+## Look at the data using 
+featurePlot(trainingData$x, trainingData$y)
+
+
+## or other methods.
+
+## This creates a list with a vector 'y' and a maxtrix
+## of predictors 'x'. Also simulates a large test set to 
+## estimate the true error rate with good precision:
+
+testData <- mlbench.friedman1(5000, sd = 1)
+testData$x <- data.frame(testData$x)
+
+## Example of Tuning a Model is 
+knnmodel <- train(x = trainingData$x,
+                  y = trainingData$y,
+                  method = "knn",
+                  preProc = c("center", "scale"),
+                  tuneLength = 10)
+knnmodel
+
+
+
+knnpred <- predict(knnmodel, newdata = testData$x)
+## the function 'postResample' can be used to get the test set
+## performance values
+postResample(pred = knnpred, obs = testData$y)
+```
+
+
+```{r}
+# Single-Layer Neural Network with 5 Hidden Neurons
+
+# Train a single-layer neural network model
+single_layer_nn <- nnet(
+  x = trainingData$x,               # Input features from training dataset
+  y = trainingData$y,               # Target output values from training dataset
+  size = 5,                         # Number of neurons in the hidden layer
+  decay = 0.01,                     # Regularization parameter to reduce overfitting
+  linout = TRUE,                    # Use linear output for regression
+  trace = FALSE,                    # Suppress training output details
+  maxit = 500,                      # Maximum number of iterations for convergence
+  MaxNWts = 5 * (ncol(trainingData$x) + 1) + 5 + 1 # Max weights based on inputs and hidden layer size
+)
+
+# Predict using the single-layer model on test dataset
+single_layer_predictions <- predict(single_layer_nn, newdata = testData$x)
+
+# Evaluate model performance: accuracy, RMSE, and R-squared
+single_layer_performance <- postResample(pred = single_layer_predictions, obs = testData$y)
+
+# Averaged Neural Network Model with Multiple Repeats
+
+# Train an ensemble neural network model with averaged predictions
+averaged_nn_model <- avNNet(
+  x = trainingData$x,               # Input features from training dataset
+  y = trainingData$y,               # Target output values from training dataset
+  size = 5,                         # Number of neurons in each hidden layer
+  decay = 0.01,                     # Regularization parameter to reduce overfitting
+  repeats = 5,                      # Number of model repeats for ensemble averaging
+  linout = TRUE,                    # Use linear output for regression
+  trace = FALSE,                    # Suppress training output details
+  maxit = 500,                      # Maximum number of iterations for convergence
+  MaxNWts = 5 * (ncol(trainingData$x) + 1) + 5 + 1 # Max weights based on inputs and hidden layer size
+)
+
+# Predict using the averaged model on test dataset
+averaged_nn_predictions <- predict(averaged_nn_model, newdata = testData$x)
+
+# Evaluate performance of the averaged neural network model
+averaged_nn_performance <- postResample(pred = averaged_nn_predictions, obs = testData$y)
+
+# Output the performance metrics for both models
+list(Single_Layer_NN_Performance = single_layer_performance,
+     Averaged_NN_Performance = averaged_nn_performance)
+
+```
+
+```{r}
+# Regular MARS (Multivariate Adaptive Regression Splines) Model
+
+# Train a basic MARS model on the training data
+basic_mars_model <- earth(
+  x = trainingData$x,               # Input features from training dataset
+  y = trainingData$y                # Target output values from training dataset
+)
+
+# Display model summary for interpretation
+print(basic_mars_model)
+summary(basic_mars_model)
+
+# Make predictions with the basic MARS model on the test dataset
+basic_mars_predictions <- predict(basic_mars_model, newdata = testData$x)
+
+# Evaluate performance of the basic MARS model: accuracy, RMSE, and R-squared
+basic_mars_performance <- postResample(pred = basic_mars_predictions, obs = testData$y)
+
+# Setting up a grid for hyperparameter tuning
+mars_tuning_grid <- expand.grid(.degree = 1:2, .nprune = 2:16)  # Degrees of interaction and number of terms
+
+# Set seed for reproducibility in cross-validation
+set.seed(1234)
+
+# Tuning the MARS model with cross-validation
+
+# Train a MARS model with cross-validation to find optimal hyperparameters
+tuned_mars_model <- train(
+  x = trainingData$x,               # Input features from training dataset
+  y = trainingData$y,               # Target output values from training dataset
+  method = "earth",                 # Specifies MARS model
+  tuneGrid = mars_tuning_grid,      # Grid of tuning parameters
+  trControl = trainControl(method = "cv") # Cross-validation control
+)
+
+# Display the tuned model details
+print(tuned_mars_model)
+
+# Make predictions with the tuned MARS model on the test dataset
+tuned_mars_predictions <- predict(tuned_mars_model, newdata = testData$x)
+
+# Evaluate performance of the tuned MARS model
+tuned_mars_performance <- postResample(pred = tuned_mars_predictions, obs = testData$y)
+
+# Output performance metrics for both the basic and tuned MARS models
+list(Basic_MARS_Performance = basic_mars_performance,
+     Tuned_MARS_Performance = tuned_mars_performance)
+
+```
+
+```{r}
+# Training SVM with Radial Basis Function (RBF) Kernel
+
+# Train an SVM model with an RBF kernel on the training data
+svm_rbf_model <- ksvm(
+  x = as.matrix(trainingData$x),    # Input features matrix from training dataset
+  y = trainingData$y,               # Target output values from training dataset
+  kernel = "rbfdot",                # Use radial basis function kernel
+  kpar = "automatic",               # Automatically select kernel parameters
+  C = 1,                            # Regularization parameter
+  epsilon = 0.1                     # Epsilon parameter for regression tolerance
+)
+
+# Make predictions with the RBF SVM model on the test dataset
+svm_rbf_predictions <- predict(svm_rbf_model, newdata = testData$x)
+
+# Evaluate performance of the RBF SVM model: accuracy, RMSE, and R-squared
+svm_rbf_performance <- postResample(pred = svm_rbf_predictions, obs = testData$y)
+
+# Tuning SVM with Radial Kernel, Centering, and Scaling
+
+# Set up an SVM model with cross-validation, centering, and scaling for tuning
+tuned_svm_model <- train(
+  x = trainingData$x,               # Input features from training dataset
+  y = trainingData$y,               # Target output values from training dataset
+  method = "svmRadial",             # SVM with radial basis kernel
+  preProc = c("center", "scale"),   # Preprocess data by centering and scaling
+  tuneLength = 14,                  # Number of hyperparameter combinations to try
+  trControl = trainControl(method = "cv") # Cross-validation control
+)
+
+# Display the details of the final tuned model
+print(tuned_svm_model$finalModel)
+
+# Make predictions with the tuned SVM model on the test dataset
+tuned_svm_predictions <- predict(tuned_svm_model, newdata = testData$x)
+
+# Evaluate performance of the tuned SVM model
+tuned_svm_performance <- postResample(pred = tuned_svm_predictions, obs = testData$y)
+
+# Output performance metrics for both the basic and tuned SVM models
+list(RBF_SVM_Performance = svm_rbf_performance,
+     Tuned_SVM_Performance = tuned_svm_performance)
+
+
+```
+
+In comparing the base models of four different non-linear methods—Multivariate Adaptive Regression Splines (MARS), Support Vector Machine (SVM), Neural Network (NN), and K-Nearest Neighbor (KNN)—we observe that MARS achieves the strongest baseline performance, with an RMSE of 1.8 and an R-squared of 0.86. This indicates that MARS captures the data structure better than the other models at this base level.
+
+Looking at the tuned models, MARS again outperforms the others with an RMSE of 1.28 and an R-squared of 0.93, confirming its adaptability in capturing non-linear relationships effectively even after hyperparameter tuning. Among the remaining three models, the ranking changes slightly: for base models, SVM shows better performance than NN, followed by KNN. However, after tuning, the Neural Network slightly surpasses the SVM, suggesting that NN benefits more from tuning adjustments than SVM does in this case.
+
+In terms of feature selection, MARS naturally identifies and prioritizes informative predictors (x1-x5) while leaving less relevant features (x7-x10) unused. This inherent ability to select the most predictive variables is advantageous, as it not only improves model accuracy but also provides interpretability. The five top-ranked predictors—x1 through x5—stand out with high importance scores, while x6 is slightly less significant, and the remaining predictors contribute minimally to model performance.
+
+
+## 7.5
+
+### Exercise 6.3 describes data for a chemical manufacturing process. Use the same data imputation, data splitting, and pre-processing steps as before and train several nonlinear regression models.
+
+### (a) Which nonlinear regression model gives the optimal resampling and test set performance?
+
+```{r}
+# Load dataset
+data("ChemicalManufacturingProcess")
+
+# Step 1: Handle Missing Values Using KNN Imputation
+# The 'preProcess' function is set up to fill in missing data using KNN imputation.
+imputation_model <- preProcess(ChemicalManufacturingProcess, method = "knnImpute")
+data_imputed <- predict(imputation_model, ChemicalManufacturingProcess)
+
+# Separate predictors (X) and response variable (y)
+predictors <- dplyr::select(data_imputed, -Yield)  # All variables except 'Yield'
+response <- data_imputed$Yield                     # 'Yield' is the target variable
+
+# Part (a): Train-Test Split for Model Evaluation
+
+# Set random seed for reproducibility and create an 80-20 train-test split
+set.seed(1234)
+train_indices <- createDataPartition(response, p = 0.8, list = FALSE)
+train_X <- predictors[train_indices, ] %>% as.matrix()  # Training predictors matrix
+test_X <- predictors[-train_indices, ] %>% as.matrix()   # Testing predictors matrix
+train_y <- response[train_indices]                      # Training target values
+test_y <- response[-train_indices]                      # Testing target values
+
+# 1. K-Nearest Neighbors (KNN) Model
+# This model scales and centers the data, tuning for the best K value within a range of 10.
+knn_model <- train(
+  x = train_X, y = train_y,
+  method = "knn",
+  preProc = c("center", "scale"),
+  tuneLength = 10
+)
+knn_predictions <- predict(knn_model, newdata = test_X)
+postResample(pred = knn_predictions, obs = test_y)
+# Output: Performance metrics (e.g., RMSE, R-squared) to assess KNN model's accuracy.
+
+# 2. Multivariate Adaptive Regression Splines (MARS) Model with Cross-Validation Tuning
+# Expanding grid for tuning parameters degree and nprune for the MARS model.
+mars_params <- expand.grid(.degree = 1:2, .nprune = 2:58)
+mars_tuned_model <- train(
+  x = train_X, y = train_y,
+  method = "earth",
+  tuneGrid = mars_params,
+  trControl = trainControl(method = "cv")
+)
+mars_predictions <- predict(mars_tuned_model, newdata = test_X)
+postResample(pred = mars_predictions, obs = test_y)
+# Output: Performance metrics for MARS model on test data.
+
+# 3. Support Vector Machine (SVM) with Radial Basis Function Kernel
+# Tuning SVM model using cross-validation with radial kernel, centering, and scaling.
+svm_model <- train(
+  x = train_X, y = train_y,
+  method = "svmRadial",
+  preProc = c("center", "scale"),
+  tuneLength = 14,
+  trControl = trainControl(method = "cv")
+)
+svm_predictions <- predict(svm_model, newdata = test_X)
+postResample(pred = svm_predictions, obs = test_y)
+# Output: Accuracy metrics for tuned SVM model.
+
+# 4. Neural Network Model
+# Training an averaged neural network with 5 hidden nodes and weight decay.
+nn_model <- avNNet(
+  x = train_X, y = train_y,
+  size = 5,
+  decay = 0.01,
+  repeats = 5,
+  linout = TRUE,
+  trace = FALSE,
+  maxit = 500,
+  MaxNWts = 5 * (ncol(train_X) + 1) + 5 + 1
+)
+nn_predictions <- predict(nn_model, newdata = test_X)
+postResample(pred = nn_predictions, obs = test_y)
+# Output: Performance metrics for Neural Network model.
+
+```
+
+
+
+### (b) Which predictors are most important in the optimal nonlinear regression model? Do either the biological or process variables dominate the list? How do the top ten important predictors compare to the top ten predictors from the optimal linear model?
+
+```{r}
+
+# Part (b): Variable Importance from MARS Model
+# Variable importance to determine which features are most informative.
+importance_mars <- varImp(mars_tuned_model)
+print(importance_mars)
+
+# Fitting MARS model directly for comparison of feature importance
+mars_direct <- earth(x = train_X, y = train_y)
+importance_direct <- varImp(mars_direct)
+print(importance_direct)
+# Output: Displays variable importance, showing top predictors used by MARS.
+
+```
+
+
+### (c) Explore the relationships between the top predictors and the response for the predictors that are unique to the optimal nonlinear regression model. Do these plots reveal intuition about the biological or process predictors and their relationship with yield?
+
+```{r}
+# Part (c): Plotting Relationships Between Top Predictors and Yield
+# List of most important predictors for analysis
+top_features <- c("ManufacturingProcess32", "ManufacturingProcess09", "ManufacturingProcess13",
+                  "ManufacturingProcess39", "ManufacturingProcess22", "ManufacturingProcess28",
+                  "BiologicalMaterial12", "BiologicalMaterial03", "ManufacturingProcess01",
+                  "ManufacturingProcess33")
+
+# Generate scatter plots with linear fit for each selected predictor
+for (feature in top_features) {
+  plot_data <- data.frame(X = predictors[[feature]], Y = response)
+  
+  plot <- ggplot(plot_data, aes_string(x = "X", y = "Y")) +
+    geom_point(alpha = 0.5) + 
+    geom_smooth(method = "lm", color = "blue", se = FALSE) + 
+    labs(
+      title = paste("Relationship between", feature, "and Yield"),
+      x = feature, y = "Yield"
+    ) +
+    theme_minimal()
+  
+  print(plot)
+}
+# Output: Displays scatter plots with a linear trend line, illustrating the relationship between each top predictor and the target variable 'Yield'.
+```
+
